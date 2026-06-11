@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    name: Release
+    name: Build and Release
     runs-on: ubuntu-latest
 
     steps:
@@ -25,46 +25,96 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Lint
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build release assets
+        run: |
+          set -eu
+
+          mkdir -p dist
+
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            asset="timer_${os}_${arch}"
+
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/${asset}/timer" .
+            tar -C "dist/${asset}" -czf "dist/${asset}.tar.gz" timer
+          done
+
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          set -eu
+
+          prev_tag=$(git tag --sort=-v:refname | sed -n '2p')
+          tag=${GITHUB_REF#refs/tags/}
+
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            if [ "$prev_tag" != "$tag" ] && [ -n "$prev_tag" ]; then
+              echo "## What's Changed"
+              echo ""
+              git log --pretty=format:"- %s (%h)" "${prev_tag}..${tag}"
+              echo ""
+              echo ""
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${prev_tag}...${tag}"
+            else
+              echo "## Initial Release"
+              echo ""
+              git log --pretty=format:"- %s (%h)" "${tag}"
+            fi
+            echo ""
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: |
+            dist/timer_darwin_amd64.tar.gz
+            dist/timer_darwin_arm64.tar.gz
+            dist/timer_linux_amd64.tar.gz
+            dist/timer_linux_arm64.tar.gz
+            dist/checksums.txt
 
   update-homebrew:
-    name: Update Homebrew formula
+    name: Update Homebrew Tap
     needs: release
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download release tarballs
+      - name: Calculate SHA256 of source tarball
+        id: hash
         run: |
-          tag=${GITHUB_REF#refs/tags/}
-          base_url="https://github.com/${{ github.repository }}/releases/download/${tag}"
-          mkdir -p tarballs
-          for name in timer_darwin_arm64 timer_darwin_amd64 timer_linux_arm64 timer_linux_amd64; do
-            curl -fsSL "${base_url}/${name}.tar.gz" -o "tarballs/${name}.tar.gz"
-          done
+          set -eu
 
-      - name: Calculate SHA256 hashes
-        id: hashes
-        run: |
-          {
-            echo "darwin_arm64=$(sha256sum tarballs/timer_darwin_arm64.tar.gz | awk '{print $1}')"
-            echo "darwin_amd64=$(sha256sum tarballs/timer_darwin_amd64.tar.gz | awk '{print $1}')"
-            echo "linux_arm64=$(sha256sum tarballs/timer_linux_arm64.tar.gz | awk '{print $1}')"
-            echo "linux_amd64=$(sha256sum tarballs/timer_linux_amd64.tar.gz | awk '{print $1}')"
-          } >> "$GITHUB_OUTPUT"
+          tag=${GITHUB_REF#refs/tags/}
+          url="https://github.com/${{ github.repository }}/archive/refs/tags/${tag}.tar.gz"
+          sha256=$(curl -fsSL "$url" | sha256sum | awk '{print $1}')
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
 
       - name: Update Homebrew formula
         env:
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
+          set -eu
+
           tag=${GITHUB_REF#refs/tags/}
-          version="${tag#v}"
           repo="${{ github.repository }}"
           owner="${{ github.repository_owner }}"
 
@@ -76,30 +126,16 @@ jobs:
           class Timer < Formula
             desc "Terminal countdown timer with a large seven-segment display"
             homepage "https://github.com/${repo}"
-            version "${version}"
+            url "https://github.com/${repo}/archive/refs/tags/${tag}.tar.gz"
+            sha256 "${{ steps.hash.outputs.sha256 }}"
+            license :cannot_represent
 
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/${repo}/releases/download/v#{version}/timer_darwin_arm64.tar.gz"
-                sha256 "${{ steps.hashes.outputs.darwin_arm64 }}"
-              elsif Hardware::CPU.intel?
-                url "https://github.com/${repo}/releases/download/v#{version}/timer_darwin_amd64.tar.gz"
-                sha256 "${{ steps.hashes.outputs.darwin_amd64 }}"
-              end
-            end
+            head "https://github.com/${repo}.git", branch: "main"
 
-            on_linux do
-              if Hardware::CPU.arm?
-                url "https://github.com/${repo}/releases/download/v#{version}/timer_linux_arm64.tar.gz"
-                sha256 "${{ steps.hashes.outputs.linux_arm64 }}"
-              elsif Hardware::CPU.intel?
-                url "https://github.com/${repo}/releases/download/v#{version}/timer_linux_amd64.tar.gz"
-                sha256 "${{ steps.hashes.outputs.linux_amd64 }}"
-              end
-            end
+            depends_on "go" => :build
 
             def install
-              bin.install "timer"
+              system "go", "build", "-trimpath", "-o", bin/"timer", "."
             end
 
             test do
@@ -108,8 +144,16 @@ jobs:
           end
           FORMULA
 
+          ruby -pi -e 'gsub(/^          /, "")' Formula/timer.rb
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/timer.rb
+
+          if git diff --cached --quiet; then
+            echo "Formula is already up to date."
+            exit 0
+          fi
+
           git commit -m "Update timer to ${tag}"
           git push origin main
