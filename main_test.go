@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -82,5 +84,20 @@ func TestRenderLarge(t *testing.T) {
 	}
 	if !strings.Contains(got, "  █  ") {
 		t.Fatalf("renderLarge() = %q, want colon or one segment", got)
+	}
+}
+
+func TestCountdownCancellationRestoresCursor(t *testing.T) {
+	interrupts := make(chan os.Signal)
+	close(interrupts)
+
+	var out bytes.Buffer
+	countdown(time.Hour, &out, interrupts)
+
+	got := out.String()
+	for _, want := range []string{"\x1b[?25l", "Timer cancelled.", "\x1b[?25h"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("countdown() output = %q, want %q", got, want)
+		}
 	}
 }

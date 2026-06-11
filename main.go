@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -46,7 +48,11 @@ func run(args []string, out io.Writer) error {
 		return err
 	}
 
-	countdown(duration, out)
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(interrupts)
+
+	countdown(duration, out, interrupts)
 	return nil
 }
 
@@ -66,12 +72,19 @@ func parseArgs(args []string) (time.Duration, error) {
 	return duration, nil
 }
 
-func countdown(duration time.Duration, out io.Writer) {
+func countdown(duration time.Duration, out io.Writer, interrupts <-chan os.Signal) {
 	defer fmt.Fprint(out, "\x1b[?25h")
 	fmt.Fprint(out, "\x1b[?25l")
 
 	deadline := time.Now().Add(duration)
 	for {
+		select {
+		case <-interrupts:
+			fmt.Fprintln(out, "\nTimer cancelled.")
+			return
+		default:
+		}
+
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			renderCountdown(0, out)
@@ -85,7 +98,20 @@ func countdown(duration time.Duration, out io.Writer) {
 		if remaining < sleepFor {
 			sleepFor = remaining
 		}
-		time.Sleep(sleepFor)
+
+		timer := time.NewTimer(sleepFor)
+		select {
+		case <-interrupts:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			fmt.Fprintln(out, "\nTimer cancelled.")
+			return
+		case <-timer.C:
+		}
 	}
 }
 
