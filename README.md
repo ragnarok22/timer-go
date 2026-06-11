@@ -9,11 +9,21 @@ A small terminal countdown timer with a large seven-segment-style display.
 
 ## Install
 
+With Go:
+
 ```sh
-go install .
+go install github.com/ragnarok22/timer-go@latest
 ```
 
-This installs the CLI as `timer`.
+This installs the CLI as `timer-go`.
+
+With the install script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ragnarok22/timer-go/main/install.sh | sh
+```
+
+This installs the CLI as `timer` from the latest GitHub release.
 
 ## Usage
 
