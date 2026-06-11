@@ -6,6 +6,7 @@
 - No external dependencies are currently declared; there is no `go.sum` unless dependencies are added.
 
 ## Commands
+- No Makefile or task runner is present; use Go commands directly.
 - Install locally: `go install .`
 - Run a short manual timer: `go run . 1s`
 - Run all tests: `go test ./...`
