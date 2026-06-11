@@ -33,6 +33,20 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestRunHelp(t *testing.T) {
+	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var out bytes.Buffer
+			if err := run(args, &out); err != nil {
+				t.Fatalf("run(%v) error = %v", args, err)
+			}
+			if got := out.String(); got != usage {
+				t.Fatalf("run(%v) output = %q, want %q", args, got, usage)
+			}
+		})
+	}
+}
+
 func TestParseArgsRejectsInvalidInput(t *testing.T) {
 	tests := [][]string{
 		{},

@@ -43,6 +43,11 @@ func main() {
 }
 
 func run(args []string, out io.Writer) error {
+	if wantsHelp(args) {
+		fmt.Fprint(out, usage)
+		return nil
+	}
+
 	duration, err := parseArgs(args)
 	if err != nil {
 		return err
@@ -54,6 +59,10 @@ func run(args []string, out io.Writer) error {
 
 	countdown(duration, out, interrupts)
 	return nil
+}
+
+func wantsHelp(args []string) bool {
+	return len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help")
 }
 
 func parseArgs(args []string) (time.Duration, error) {
