@@ -1,6 +1,7 @@
 # Timer
 
 [![CI](https://github.com/ragnarok22/timer-go/actions/workflows/ci.yml/badge.svg)](https://github.com/ragnarok22/timer-go/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ragnarok22/timer-go/graph/badge.svg)](https://codecov.io/gh/ragnarok22/timer-go)
 ![Go](https://img.shields.io/badge/go-1.22+-00ADD8?logo=go&logoColor=white)
 ![CLI](https://img.shields.io/badge/type-CLI-orange)
 
