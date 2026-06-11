@@ -1,5 +1,9 @@
 # Timer
 
+[![CI](https://github.com/ragnarok22/timer-go/actions/workflows/ci.yml/badge.svg)](https://github.com/ragnarok22/timer-go/actions/workflows/ci.yml)
+![Go](https://img.shields.io/badge/go-1.22+-00ADD8?logo=go&logoColor=white)
+![CLI](https://img.shields.io/badge/type-CLI-orange)
+
 A small terminal countdown timer with a large seven-segment-style display.
 
 ## Install
