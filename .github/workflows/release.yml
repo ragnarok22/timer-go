@@ -33,3 +33,83 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew formula
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release tarballs
+        run: |
+          tag=${GITHUB_REF#refs/tags/}
+          base_url="https://github.com/${{ github.repository }}/releases/download/${tag}"
+          mkdir -p tarballs
+          for name in timer_darwin_arm64 timer_darwin_amd64 timer_linux_arm64 timer_linux_amd64; do
+            curl -fsSL "${base_url}/${name}.tar.gz" -o "tarballs/${name}.tar.gz"
+          done
+
+      - name: Calculate SHA256 hashes
+        id: hashes
+        run: |
+          {
+            echo "darwin_arm64=$(sha256sum tarballs/timer_darwin_arm64.tar.gz | awk '{print $1}')"
+            echo "darwin_amd64=$(sha256sum tarballs/timer_darwin_amd64.tar.gz | awk '{print $1}')"
+            echo "linux_arm64=$(sha256sum tarballs/timer_linux_arm64.tar.gz | awk '{print $1}')"
+            echo "linux_amd64=$(sha256sum tarballs/timer_linux_amd64.tar.gz | awk '{print $1}')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew formula
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          tag=${GITHUB_REF#refs/tags/}
+          version="${tag#v}"
+          repo="${{ github.repository }}"
+          owner="${{ github.repository_owner }}"
+
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/${owner}/homebrew-tap.git"
+          cd homebrew-tap
+          mkdir -p Formula
+
+          cat > Formula/timer.rb <<FORMULA
+          class Timer < Formula
+            desc "Terminal countdown timer with a large seven-segment display"
+            homepage "https://github.com/${repo}"
+            version "${version}"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/${repo}/releases/download/v#{version}/timer_darwin_arm64.tar.gz"
+                sha256 "${{ steps.hashes.outputs.darwin_arm64 }}"
+              elsif Hardware::CPU.intel?
+                url "https://github.com/${repo}/releases/download/v#{version}/timer_darwin_amd64.tar.gz"
+                sha256 "${{ steps.hashes.outputs.darwin_amd64 }}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/${repo}/releases/download/v#{version}/timer_linux_arm64.tar.gz"
+                sha256 "${{ steps.hashes.outputs.linux_arm64 }}"
+              elsif Hardware::CPU.intel?
+                url "https://github.com/${repo}/releases/download/v#{version}/timer_linux_amd64.tar.gz"
+                sha256 "${{ steps.hashes.outputs.linux_amd64 }}"
+              end
+            end
+
+            def install
+              bin.install "timer"
+            end
+
+            test do
+              assert_match "Usage: timer", shell_output("#{bin}/timer --help")
+            end
+          end
+          FORMULA
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/timer.rb
+          git commit -m "Update timer to ${tag}"
+          git push origin main

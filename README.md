@@ -9,6 +9,13 @@ A small terminal countdown timer with a large seven-segment-style display.
 
 ## Install
 
+With Homebrew:
+
+```sh
+brew tap ragnarok22/tap
+brew install timer
+```
+
 With Go:
 
 ```sh
