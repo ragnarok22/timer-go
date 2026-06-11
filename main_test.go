@@ -47,6 +47,53 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidInput(t *testing.T) {
+	var out bytes.Buffer
+	if err := run([]string{"not-a-duration"}, &out); err == nil {
+		t.Fatal("run() expected error")
+	}
+	if got := out.String(); got != "" {
+		t.Fatalf("run() output = %q, want empty output", got)
+	}
+}
+
+func TestRunCompletesShortTimer(t *testing.T) {
+	var out bytes.Buffer
+	if err := run([]string{"1ns"}, &out); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{renderLarge("00:00"), "Time's up!", "\x1b[?25h"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("run() output = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestWantsHelp(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "help", args: []string{"help"}, want: true},
+		{name: "short flag", args: []string{"-h"}, want: true},
+		{name: "long flag", args: []string{"--help"}, want: true},
+		{name: "empty", args: nil, want: false},
+		{name: "duration", args: []string{"10s"}, want: false},
+		{name: "extra arg", args: []string{"help", "10s"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := wantsHelp(tt.args); got != tt.want {
+				t.Fatalf("wantsHelp() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseArgsRejectsInvalidInput(t *testing.T) {
 	tests := [][]string{
 		{},
@@ -101,6 +148,24 @@ func TestRenderLarge(t *testing.T) {
 	}
 }
 
+func TestRenderLargeIgnoresUnsupportedCharacters(t *testing.T) {
+	if got, want := renderLarge("x"), "\n\n\n\n\n"; got != want {
+		t.Fatalf("renderLarge() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderCountdown(t *testing.T) {
+	var out bytes.Buffer
+	renderCountdown(10*time.Second, &out)
+
+	got := out.String()
+	for _, want := range []string{"\x1b[2J\x1b[H", "\x1b[38;5;208m", renderLarge("00:10"), "\x1b[0m"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("renderCountdown() output = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestCountdownCancellationRestoresCursor(t *testing.T) {
 	interrupts := make(chan os.Signal)
 	close(interrupts)
@@ -110,6 +175,18 @@ func TestCountdownCancellationRestoresCursor(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{"\x1b[?25l", "Timer cancelled.", "\x1b[?25h"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("countdown() output = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestCountdownCompletionRestoresCursor(t *testing.T) {
+	var out bytes.Buffer
+	countdown(1*time.Nanosecond, &out, make(chan os.Signal))
+
+	got := out.String()
+	for _, want := range []string{renderLarge("00:00"), "Time's up!", "\x1b[?25h"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("countdown() output = %q, want %q", got, want)
 		}
