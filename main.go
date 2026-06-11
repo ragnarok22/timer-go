@@ -35,11 +35,17 @@ var digitPatterns = map[rune][5]string{
 }
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(1)
+	os.Exit(cli(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func cli(args []string, out io.Writer, errOut io.Writer) int {
+	if err := run(args, out); err != nil {
+		fmt.Fprintln(errOut, err)
+		fmt.Fprint(errOut, usage)
+		return 1
 	}
+
+	return 0
 }
 
 func run(args []string, out io.Writer) error {
@@ -111,12 +117,7 @@ func countdown(duration time.Duration, out io.Writer, interrupts <-chan os.Signa
 		timer := time.NewTimer(sleepFor)
 		select {
 		case <-interrupts:
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
+			timer.Stop()
 			fmt.Fprintln(out, "\nTimer cancelled.")
 			return
 		case <-timer.C:

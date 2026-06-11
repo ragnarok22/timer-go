@@ -73,6 +73,39 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestCLIHelpExitsSuccessfully(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	if got := cli([]string{"help"}, &out, &errOut); got != 0 {
+		t.Fatalf("cli() = %d, want 0", got)
+	}
+	if got := out.String(); got != usage {
+		t.Fatalf("cli() stdout = %q, want %q", got, usage)
+	}
+	if got := errOut.String(); got != "" {
+		t.Fatalf("cli() stderr = %q, want empty stderr", got)
+	}
+}
+
+func TestCLIInvalidInputExitsWithUsage(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	if got := cli([]string{"nope"}, &out, &errOut); got != 1 {
+		t.Fatalf("cli() = %d, want 1", got)
+	}
+	if got := out.String(); got != "" {
+		t.Fatalf("cli() stdout = %q, want empty stdout", got)
+	}
+	got := errOut.String()
+	for _, want := range []string{"invalid duration", usage} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cli() stderr = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestRunRejectsInvalidInput(t *testing.T) {
 	var out bytes.Buffer
 	if err := run([]string{"not-a-duration"}, &out); err == nil {
