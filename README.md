@@ -57,3 +57,10 @@ Run tests:
 ```sh
 go test ./...
 ```
+
+Run tests with coverage:
+
+```sh
+go test -coverprofile=coverage.out -covermode=atomic ./...
+go tool cover -func=coverage.out
+```
