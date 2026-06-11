@@ -4,9 +4,35 @@ import (
 	"bytes"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+type renderNotifyingWriter struct {
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	rendered chan struct{}
+	once     sync.Once
+}
+
+func (w *renderNotifyingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	n, err := w.buf.Write(p)
+	if strings.Contains(w.buf.String(), "\x1b[0m") {
+		w.once.Do(func() { close(w.rendered) })
+	}
+	return n, err
+}
+
+func (w *renderNotifyingWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.buf.String()
+}
 
 func TestParseArgs(t *testing.T) {
 	tests := []struct {
@@ -187,6 +213,50 @@ func TestCountdownCompletionRestoresCursor(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{renderLarge("00:00"), "Time's up!", "\x1b[?25h"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("countdown() output = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestCountdownSubSecondTimerCompletes(t *testing.T) {
+	var out bytes.Buffer
+	countdown(time.Millisecond, &out, make(chan os.Signal))
+
+	got := out.String()
+	for _, want := range []string{renderLarge("00:00"), "Time's up!", "\x1b[?25h"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("countdown() output = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestCountdownCancellationDuringSleepRestoresCursor(t *testing.T) {
+	interrupts := make(chan os.Signal, 1)
+	out := &renderNotifyingWriter{rendered: make(chan struct{})}
+	done := make(chan struct{})
+
+	go func() {
+		countdown(time.Hour, out, interrupts)
+		close(done)
+	}()
+
+	select {
+	case <-out.rendered:
+	case <-time.After(time.Second):
+		t.Fatal("countdown() did not render before timeout")
+	}
+
+	interrupts <- os.Interrupt
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("countdown() did not cancel before timeout")
+	}
+
+	got := out.String()
+	for _, want := range []string{"Timer cancelled.", "\x1b[?25h"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("countdown() output = %q, want %q", got, want)
 		}
